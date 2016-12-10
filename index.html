@@ -13,9 +13,29 @@ if (!window.console) {
 };
 l = console.log;
 
+var bulletField = function (w, h, maxRadius) {
+	var me = {};
+
+	me.addBullet = function (x, y, radius) {
+
+	};
+
+	me.findCollisions = function () {
+		var collisions = [];
+		return collisions;
+	};
+
+	return me;
+};
+
 var game = (function () {
 	var keysDown = {};
 	var me = {};
+	var graphics = new PIXI.Graphics();
+	var gravity = 0.001;
+	var friction = 0.95;
+	var bowlRadius = 1200;
+	var escapeHeight = 160;
 
 	var makeBlob = function () {
 		var me = {
@@ -26,7 +46,8 @@ var game = (function () {
 			xs: 0,
 			ys: 0,
 			oozeOffset : 0,
-			movementSpeed : 0.1
+			movementSpeed : 0.0025,
+			bigness : 0.1
 		};
 
 		var blobRectangle = new PIXI.Rectangle(358, 1114, 100, 100);
@@ -42,29 +63,59 @@ var game = (function () {
 		me.sprite.initialHeight = me.sprite.height;
 		me.sprite.initialWidth = me.sprite.width;
 
+		me.sprite.anchor.set(0.5, 0.5);
+
 		me.lastTwitch = 0;
 
 		me.twitch = function () {
 			me.lastTwitch = Date.now();
 		}
 
+		me.eat = function () {
+			l(me.sprite.scale);
+
+			me.bigness *= 1.1;
+			me.sprite.scale.set(me.bigness, me.bigness);
+		}
+
 		me.tick = function (elapsed) {
+			// me.sprite.rotation = Date.now();
+
+			// Underwater?
+			if (me.playY > 0 && !me.escaped) {
+				me.ys += me.ydir * me.movementSpeed * elapsed;
+				me.xs *= friction; 
+				me.ys *= friction;
+			} else {
+				me.ys += elapsed * gravity; 
+			}
+
+			if (!me.escaped) {
+				me.xs += me.xdir * me.movementSpeed * elapsed;
+			}
+
+			me.prevX = me.playX;
+			me.prevY = me.playY;
 
 			me.playX += me.xs * elapsed;
 			me.playY += me.ys * elapsed;
 
-			me.xs *= 0.9;
-			me.ys *= 0.9;
+			// If colliding with inside, reflect, except if high enough to escape
+			if (Math.sqrt(me.playX * me.playX + me.playY * me.playY) > bowlRadius) {
 
-			// Make it oozy
-			// var speed = 0.1;
-			// me.dim_y += me.dim_ys;
-			// me.dim_yss = me.dim_y < 0 ? speed : -speed;
-			// me.dim_ys += me.dim_yss * elapsed;
+				if (me.playY < -escapeHeight) {
+					me.escaped = true;
+				}
 
-			// l(me.dim_y);
-			// me.sprite.height = me.sprite.initialHeight + me.dim_y;
-			
+				if (!me.escaped) {
+					me.playX = me.prevX;
+					me.playY = me.prevY;
+					me.xs *= -1;
+					me.ys *= -1; // This is wrong but whatevers for now
+				}
+			}
+
+			// Twitch to music, or otherwise
 			if (me.lastTwitch !== null) {
 				var twitchElapsed = (Date.now() - me.lastTwitch) * 0.03;
 				var t = (Math.sin(twitchElapsed)) * 10;
@@ -72,12 +123,11 @@ var game = (function () {
 					me.lastTwitch = null; 
 					t = 0;
 				}
-				me.sprite.height = me.sprite.initialHeight - t;
-				me.sprite.width = me.sprite.initialWidth + t;
-				me.oozeOffset = t / 2;
+				me.sprite.height = me.sprite.initialHeight * me.bigness - t;
+				me.sprite.width = me.sprite.initialWidth * me.bigness + t;
 			}
 
-			me.sprite.position.set(me.playX - me.oozeOffset, me.playY + me.oozeOffset);
+			me.sprite.position.set(me.playX, me.playY);
 		};
 
 		return me;
@@ -88,6 +138,46 @@ var game = (function () {
 
 	me.stage = new PIXI.Container();
 	me.camera = new PIXI.Container();
+	me.camera.targetScale = 5;
+	me.camera.scale.set(me.camera.targetScale, me.camera.targetScale);
+	me.camera.targetX = 960/2;
+	me.camera.targetY = 540/2;
+	me.camera.position.set(me.camera.targetX, me.camera.targetY);
+
+	me.camera.tick = function () {
+
+		var cameraSpeed = 0.5;
+
+		me.camera.position.set(
+			me.camera.position.x * cameraSpeed + me.camera.targetX * (1 - cameraSpeed),
+			me.camera.position.y * cameraSpeed + me.camera.targetY * (1 - cameraSpeed)
+		);
+
+		me.camera.scale.set(
+			me.camera.scale.x * 0.999 + me.camera.targetScale * 0.001,
+			me.camera.scale.x * 0.999 + me.camera.targetScale * 0.001
+		);
+
+		me.camera.targetX = -me.blob.playX*me.camera.scale.x + 960/2;
+		me.camera.targetY = -me.blob.playY*me.camera.scale.y + 540/2;
+		me.camera.targetScale = 0.5 / me.blob.bigness;
+
+//		me.camera.scale.set(0.5 / me.blob.bigness, 0.5 / me.blob.bigness);
+	};
+
+	graphics.beginFill(0x95998b);
+	graphics.drawCircle(0, 0, bowlRadius + 10);
+	graphics.endFill();
+
+	graphics.beginFill(0x268dab);
+	graphics.drawCircle(0, 0, bowlRadius);
+	graphics.endFill();
+
+	graphics.beginFill(0xffffff);
+	graphics.drawRect(-1200, -bowlRadius*2, 2400, bowlRadius*2);
+	graphics.endFill();
+
+	me.camera.addChild(graphics);
 
 //	me.camera.scale.set(0.5, 0.5);
 
@@ -108,23 +198,25 @@ var game = (function () {
 		var p = new PIXI.Rectangle(game.ima.mouse.global.x * 2, game.ima.mouse.global.y * 2, 100, 100);
 
 		if (keysDown[87] || keysDown[83]) { // W / S
-			me.blob.ys = keysDown[87] ? -me.blob.movementSpeed : me.blob.movementSpeed;
+//			me.blob.ys = keysDown[87] ? -me.blob.movementSpeed : me.blob.movementSpeed;
+			me.blob.ydir = keysDown[87] ? -1 : 1;
 		} else {
-//			me.blob.ys = 0;
+			me.blob.ydir = 0;
 		}
 
 		if (keysDown[65] || keysDown[68]) { // A / D
-			me.blob.xs = keysDown[65] ? -me.blob.movementSpeed : me.blob.movementSpeed;
+//			me.blob.xs = keysDown[65] ? -me.blob.movementSpeed : me.blob.movementSpeed;
+			me.blob.xdir = keysDown[65] ? -1 : 1;
 		} else {
-//			me.blob.xs = 0;
+			me.blob.xdir = 0;
 		}
 
-		if (keysDown[83]) { // S
-			me.blob.ys = me.blob.movementSpeed;
-		}
-		if (keysDown[68]) { // D
-			me.blob.xs = me.blob.movementSpeed;
-		}
+		// if (keysDown[83]) { // S
+		// 	me.blob.ys = me.blob.movementSpeed;
+		// }
+		// if (keysDown[68]) { // D
+		// 	me.blob.xs = me.blob.movementSpeed;
+		// }
 
 
 		// l(p);
@@ -182,6 +274,7 @@ var game = (function () {
 		// count += 0.1;
 		me.timeBased();
 		me.controls();
+		me.camera.tick();
 		me.musicEvents();
 
 		renderer.render(me.stage);
@@ -221,7 +314,15 @@ var game = (function () {
 	document.body.onkeydown = function(e) {
 		if (keysDown[event.keyCode]) return;
 
-		me.blob.twitch();
+		if ([87, 83, 65, 68].indexOf(event.keyCode) !== -1) {
+			me.blob.twitch();
+		}
+
+		if (event.keyCode == 66) {
+			me.blob.eat();
+		}
+
+		// l(event.keyCode);
 
 		keysDown[event.keyCode] = true;
 	}
@@ -235,7 +336,7 @@ var game = (function () {
 		tracks: "music.wav", 
 		mapKeys: {cue: "1", playpause: "2", stop: "3"}
 	});
-	me.music.play();
+//	me.music.play();
 
 	return me;
 })();
