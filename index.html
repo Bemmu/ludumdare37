@@ -1,18 +1,95 @@
-<!DOCTYPE html><head><title></title></head><body><div id="music" style="display:none"/><script src="pixi.min.js"></script></script><script src="jquery-1.7.1.min.js"></script><script src="gapless5.js"></script><script>
+<!DOCTYPE html><head><title></title></head>
+<style>
+	canvas {
+		margin: 50px auto 0 auto;
+		border-radius: 5px;
+		display: block;
+		width: 960px;
+	}
+</style>
+<body style="background:black;"><div id="music" style="display:none"/><script src="pixi.min.js"></script></script><script src="jquery-1.7.1.min.js"></script><script src="gapless5.js"></script><script>
 if (!window.console) {
 	window.console = {'log' : function (str) {}};
 };
 l = console.log;
 
 var game = (function () {
+	var keysDown = {};
 	var me = {};
 
-	var renderer = PIXI.autoDetectRenderer(690, 660);
+	var makeBlob = function () {
+		var me = {
+			dim_ys: -1,
+			dim_y: 0,
+			playY: 200,
+			playX: 200,
+			xs: 0,
+			ys: 0,
+			oozeOffset : 0,
+			movementSpeed : 0.1
+		};
+
+		var blobRectangle = new PIXI.Rectangle(358, 1114, 100, 100);
+		var baseTexture = PIXI.BaseTexture.fromImage("bg.png");
+
+		me.sprite = new PIXI.Sprite(
+			new PIXI.Texture(
+				baseTexture,
+				blobRectangle
+			)
+		);
+
+		me.sprite.initialHeight = me.sprite.height;
+		me.sprite.initialWidth = me.sprite.width;
+
+		me.lastTwitch = 0;
+
+		me.twitch = function () {
+			me.lastTwitch = Date.now();
+		}
+
+		me.tick = function (elapsed) {
+
+			me.playX += me.xs * elapsed;
+			me.playY += me.ys * elapsed;
+
+			me.xs *= 0.9;
+			me.ys *= 0.9;
+
+			// Make it oozy
+			// var speed = 0.1;
+			// me.dim_y += me.dim_ys;
+			// me.dim_yss = me.dim_y < 0 ? speed : -speed;
+			// me.dim_ys += me.dim_yss * elapsed;
+
+			// l(me.dim_y);
+			// me.sprite.height = me.sprite.initialHeight + me.dim_y;
+			
+			if (me.lastTwitch !== null) {
+				var twitchElapsed = (Date.now() - me.lastTwitch) * 0.03;
+				var t = (Math.sin(twitchElapsed)) * 10;
+				if (twitchElapsed > Math.PI * 2) {
+					me.lastTwitch = null; 
+					t = 0;
+				}
+				me.sprite.height = me.sprite.initialHeight - t;
+				me.sprite.width = me.sprite.initialWidth + t;
+				me.oozeOffset = t / 2;
+			}
+
+			me.sprite.position.set(me.playX - me.oozeOffset, me.playY + me.oozeOffset);
+		};
+
+		return me;
+	};
+
+	var renderer = PIXI.autoDetectRenderer(960, 540); // an acceptable kongregate res
+	renderer.backgroundColor = 0xFFFFFF;
 
 	me.stage = new PIXI.Container();
+	me.camera = new PIXI.Container();
 
-	// var texture = PIXI.Texture.fromImage('bg.png');
-	// var bg = new PIXI.Sprite(texture);
+//	me.camera.scale.set(0.5, 0.5);
 
 	document.body.appendChild(renderer.view);
 
@@ -25,52 +102,145 @@ var game = (function () {
 	// var count = 0;
 	// var prevPos = null;
 
+
+	me.controls = function() {
+
+		var p = new PIXI.Rectangle(game.ima.mouse.global.x * 2, game.ima.mouse.global.y * 2, 100, 100);
+
+		if (keysDown[87] || keysDown[83]) { // W / S
+			me.blob.ys = keysDown[87] ? -me.blob.movementSpeed : me.blob.movementSpeed;
+		} else {
+//			me.blob.ys = 0;
+		}
+
+		if (keysDown[65] || keysDown[68]) { // A / D
+			me.blob.xs = keysDown[65] ? -me.blob.movementSpeed : me.blob.movementSpeed;
+		} else {
+//			me.blob.xs = 0;
+		}
+
+		if (keysDown[83]) { // S
+			me.blob.ys = me.blob.movementSpeed;
+		}
+		if (keysDown[68]) { // D
+			me.blob.xs = me.blob.movementSpeed;
+		}
+
+
+		// l(p);
+		// me.sprite2.texture.frame = p;
+
+		// l(game.ima.mouse.global.x, game.ima.mouse.global.y);
+	};
+
+	var prevFrame = null;
+	me.timeBased = function () {
+		if (prevFrame === null) {
+			prevFrame = Date.now();
+			return;
+		}
+		var nau = Date.now();
+		var elapsed = nau - prevFrame;
+
+		me.blob.tick(elapsed);
+
+		prevFrame = nau;
+	}
+
+	me.beat = function() {
+		me.blob.twitch();
+	}
+
+	var beatPositions = [0, 0.25, 0.5, 0.75];
+	var beatIndex = 0;
+
+	var prevMusicPos = null;
+	me.musicEvents = function() {
+		var pos = me.music.mgr.sources[0].getPosition();
+		if (prevMusicPos === null) {
+			prevMusicPos = pos;
+			return;
+		}
+
+		// Looped around?
+		if (pos < prevMusicPos) {
+			beatIndex = 0;
+		}
+
+		var len = me.music.mgr.sources[0].getLength();
+		var r = pos / len;		
+
+		if (beatIndex < beatPositions.length && r > beatPositions[beatIndex]) {
+			beatIndex++;
+			me.beat();
+		}
+
+		prevMusicPos = pos;
+	};
+
 	me.animate = function () {
 		// count += 0.1;
+		me.timeBased();
+		me.controls();
+		me.musicEvents();
+
 		renderer.render(me.stage);
 		requestAnimationFrame(me.animate);
 	};
 
 	me.assetsDidLoad = function () {
-		me.baseTexture = PIXI.BaseTexture.fromImage("test.png");
+		// This is OK, it checks the texture cache based on image name so it isn't loaded twice
+		// me.baseTexture = PIXI.BaseTexture.fromImage("bg.png");
 
-		me.sprite = new PIXI.Sprite(
-			new PIXI.Texture(
-				me.baseTexture,
-				new PIXI.Rectangle(0, 0, 100, 100)
-			)
-		);
-		me.sprite2 = new PIXI.Sprite(
-			new PIXI.Texture(
-				me.baseTexture,
-				new PIXI.Rectangle(100, 100, 100, 100)
-			)
-		);
-		me.sprite.position.set(150, 150);
+		// me.sprite = new PIXI.Sprite(
+		// 	new PIXI.Texture(
+		// 		me.baseTexture,
+		// 		new PIXI.Rectangle(0, 1000, 1000, 1000)
+		// 	)
+		// );
 
-		me.stage.addChild(me.sprite);
-		me.stage.addChild(me.sprite2);
+		me.stage.addChild(me.camera);
+		me.blob = makeBlob();
+		me.camera.addChild(me.blob.sprite);
+
+
+		// me.stage.addChild(me.sprite);
+		
 
 		requestAnimationFrame(me.animate);
 	}
 
 	me.loader = PIXI.loader
 	    .add([
-	    	'test.png'
+	    	'bg.png'
 	    ])
 	    .load(me.assetsDidLoad);
 
-	// me.music = new Gapless5("music", {
-	// 	loop: true, 
-	// 	tracks: "music.wav", 
-	// 	mapKeys: {cue: "1", playpause: "2", stop: "3"}
-	// });
-	// me.music.play();
+	me.ima = new PIXI.interaction.InteractionManager(renderer);
+
+	document.body.onkeydown = function(e) {
+		if (keysDown[event.keyCode]) return;
+
+		me.blob.twitch();
+
+		keysDown[event.keyCode] = true;
+	}
+
+	document.body.onkeyup = function(e) {
+		delete keysDown[event.keyCode];
+	}
+
+	me.music = new Gapless5("music", {
+		loop: true, 
+		tracks: "music.wav", 
+		mapKeys: {cue: "1", playpause: "2", stop: "3"}
+	});
+	me.music.play();
 
 	return me;
 })();
 
-document.write('<script src="http://' + (location.host || 'localhost').split(':')[0] + ':35729/livereload.js?snipver=1"></' + 'script>');
+// document.write('<script src="http://' + (location.host || 'localhost').split(':')[0] + ':35729/livereload.js?snipver=1"></' + 'script>');
 
 $(function() {
 });</script></body></html>
