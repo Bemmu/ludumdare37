@@ -7,11 +7,25 @@
 		width: 960px;
 	}
 </style>
-<body style="background:black;"><div id="music" style="display:none"/><script src="pixi.min.js"></script></script><script src="jquery-1.7.1.min.js"></script><script src="gapless5.js"></script><script>
+<body style="background:black;"><div id="music" style="display:none"></div><div id="itai" style="display:none"></div><div id="yummy" style="display:none"></div><script src="pixi.min.js"></script></script><script src="jquery-1.7.1.min.js"></script><script src="gapless5.js"></script><script>
 if (window.console === undefined) {
 	window.console = {'log' : function (str) {}};
 };
 l = console.log;
+
+var difficulty = 0.3;
+
+var itai = new Gapless5("itai", {
+	loop: false, 
+	tracks: "itai.wav"//, 
+	// mapKeys: {cue: "1", playpause: "2", stop: "3"}
+});
+
+var yummy = new Gapless5("yummy", {
+	loop: false, 
+	tracks: "yummy.wav"//, 
+	// mapKeys: {cue: "1", playpause: "2", stop: "3"}
+});
 
 // If objects can have negative coordinates, then you can give an offset.
 // For example if your X coordinates go from -1000 to 1000, give an offsetX of 1000.
@@ -45,6 +59,20 @@ function makeCollisionGrid(w, h, cellSize, offsetX, offsetY) {
 
 		field[cellIndex].push(obj);
 	};
+
+	me.remove = function (obj) {
+		// l("removing");
+		var gridX = Math.floor((obj.playX + offsetX) / cellSize);
+		var gridY = Math.floor((obj.playY + offsetY) / cellSize);
+
+		// Take it out from the grid cell it's in
+		var cellIndex = gridY * xCells + gridX;
+		var place = field[cellIndex].indexOf(obj);
+		if (place === -1) {
+			alert("object trying to remove wasn't in collisionGrid, although it should be, panic!");
+		}
+		field[cellIndex].splice(place, 1);
+	}
 
 	me.objMoved = function (obj, prevX, prevY) {
 		if (obj.playX + offsetX < 0 || obj.playY + offsetX > w) {
@@ -170,7 +198,7 @@ var game = (function () {
 	var me = {};
 	var graphics = new PIXI.Graphics();
 	var gravity = 0.001;
-	var friction = 0.95;
+	var friction = 0.98;
 	var bowlRadius = 1200;
 	var escapeHeight = 160;
 	var collisionGrid = makeCollisionGrid(2600, 2600, 40, 1300, 1300);
@@ -179,16 +207,18 @@ var game = (function () {
 		var me = {
 			dim_ys: -1,
 			dim_y: 0,
-			playY: 200,
-			playX: 200,
+			playY: 1180,
+			playX: 0,
 			xdir : 0,
 			ydir : 0,
 			xs: 0,
 			ys: 0,
 			oozeOffset : 0,
-			movementSpeed : 0.0025,
-			bigness : 0.1,
-			name : 'unnamed'
+			movementSpeed : 0.00025,
+			bigness : 0.05 + Math.random() * 0.3,
+			name : 'unnamed',
+			lastCollisionTime : 0,
+			angularVelocity : 0
 		};
 
 		var blobRectangle = new PIXI.Rectangle(358, 1114, 100, 100);
@@ -216,28 +246,55 @@ var game = (function () {
 			} 
 		};
 
-		me.eat = function () {
-			l(me.sprite.scale);
-
-			me.bigness *= 1.1;
+		me.eat = function (amount) {
+			me.bigness += amount;
 			me.sprite.scale.set(me.bigness, me.bigness);
+			me.radius = me.sprite.width / 2 * 0.75;
 		};
 
 		me.didCollideWith = function (b) {
+
 			if (me.name == "marimo") {
-				l("ouch");
+//				itai.setPosition(0, true);
+				// l("ouch");
+
+				if (b.bigness < me.bigness) {
+
+					var caloriesInSnack = b.bigness * difficulty;
+					if (me.bigness > 1.5) caloriesInSnack = 0;
+					me.eat(caloriesInSnack);
+
+					// l(me.bigness);
+
+					// b.sprite.visible = false;
+					b.dead = true;
+
+					if (me.name == "marimo") {
+						yummy.stop();
+						yummy.play();
+					}
+
+					return;
+				} else {
+
+					if (me.name == "marimo") {
+						itai.stop();
+						itai.play();
+					}
+
+					// Lose 25% of weight exceeding 0.1
+					var weightLoss = Math.max(0, (me.bigness - 0.1) * 0.25);
+					me.eat(-weightLoss);
+
+
+				}
 			}
-			if (me.name == "testblob" && b.name == "testblob") {
 
-				// Make them go away from each other
+			me.lastCollisionTime = Date.now();
+			me.xs = (me.playX - b.playX) * 0.01;
+			me.ys = (me.playY - b.playY) * 0.01;
+			me.angularVelocity = Math.random() * Math.random();
 
-				// This would move me so that I would overlap with b
-				me.xs = (me.playX - b.playX) * 0.01;
-				me.ys = (me.playY - b.playY) * 0.01;
-
-				// But instead I want to go the opposite way
-
-			}
 		};
 
 		me.tick = function (elapsed) {
@@ -249,19 +306,28 @@ var game = (function () {
 
 			// me.sprite.rotation = Date.now();
 
+			var elapsedSinceLastCollision = Date.now() - me.lastCollisionTime;
+			var canBeControlled = elapsedSinceLastCollision > 1000;
+			if (!canBeControlled) {
+				me.sprite.tint = 0xff0000;
+				me.sprite.rotation += me.angularVelocity;
+			} else {
+				me.sprite.tint = me.name == "marimo" ? 0xffffff : 0x808080;
+				me.sprite.rotation = me.sprite.rotation * 0.95;
+				me.angularVelocity = 0;
+			}
 
 			// Underwater?
 			if (me.playY > 0 && !me.escaped) {
-				me.ys += me.ydir * me.movementSpeed * elapsed;
+				if (canBeControlled) me.ys += me.ydir * me.movementSpeed * elapsed;
 				me.xs *= friction; 
 				me.ys *= friction;
 			} else {
 				me.ys += elapsed * gravity; 
 			}
 
-
 			if (!me.escaped) {
-				me.xs += me.xdir * me.movementSpeed * elapsed;
+				if (canBeControlled) me.xs += me.xdir * me.movementSpeed * elapsed;
 			}
 
 			me.prevX = me.playX;
@@ -383,6 +449,18 @@ var game = (function () {
 		var nau = Date.now();
 		var elapsed = nau - prevFrame;
 
+		var deadThings = [];
+		collisionGrid.iterateObjs(function (obj) {
+			if (obj.dead === true) {
+				// l("" + obj.name + " has died");
+				deadThings.push(obj);
+				me.camera.removeChild(obj.sprite);				
+			}
+		});
+		for (var i = 0; i < deadThings.length; i++) {
+			collisionGrid.remove(deadThings[i]);
+		}
+	
 		collisionGrid.iterateObjs(function (obj) {
 			obj.tick(elapsed);
 		});
@@ -395,7 +473,9 @@ var game = (function () {
 
 	me.beat = function() {
 		collisionGrid.iterateObjs(function (obj) {
-			obj.twitch();
+			if (obj.name != "marimo") {
+				obj.twitch();
+			}
 		});
 
 //		me.blob.twitch();
@@ -471,14 +551,13 @@ var game = (function () {
 	me.spawnEnemies = function () {
 		var blob;
 		for (var i = 0; i < 1000; i++) {
-			var pt = randomPointInsideCircle(bowlRadius * 0.9);
+			var pt = randomPointInsideCircle(bowlRadius * 0.88);
 			blob = makeBlob();
 			blob.playX = pt.x;
 			blob.playY = pt.y;
 			blob.name = "testblob";
 			collisionGrid.add(blob);
 
-			blob.sprite.tint = Math.random() * 0xFFFFFF;
 			me.camera.addChild(blob.sprite);
 		}
 	}
@@ -497,6 +576,7 @@ var game = (function () {
 		me.stage.addChild(me.camera);
 		me.blob = makeBlob();
 		me.blob.name = "marimo";
+		me.blob.bigness = 0.1;
 		collisionGrid.add(me.blob);
 		// l(me.blob.playX);
 		// l(me.blob.playY);
@@ -522,9 +602,9 @@ var game = (function () {
 			me.blob.twitch();
 		}
 
-		if (event.keyCode == 66) {
-			me.blob.eat();
-		}
+		// if (event.keyCode == 66) {
+		// 	me.blob.eat();
+		// }
 
 		// l(event.keyCode);
 
@@ -541,6 +621,8 @@ var game = (function () {
 		// mapKeys: {cue: "1", playpause: "2", stop: "3"}
 	});
 	me.music.play();
+
+	
 
 	return me;
 })();

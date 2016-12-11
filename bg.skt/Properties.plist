@@ -33,10 +33,10 @@
 	<string>Plain</string>
 	<key>PaperColor</key>
 	<array>
-		<real>255</real>
-		<real>255</real>
-		<real>255</real>
-		<real>255</real>
+		<integer>255</integer>
+		<integer>255</integer>
+		<integer>255</integer>
+		<integer>255</integer>
 	</array>
 	<key>Version</key>
 	<string>1.0</string>
