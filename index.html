@@ -8,21 +8,158 @@
 	}
 </style>
 <body style="background:black;"><div id="music" style="display:none"/><script src="pixi.min.js"></script></script><script src="jquery-1.7.1.min.js"></script><script src="gapless5.js"></script><script>
-if (!window.console) {
+if (window.console === undefined) {
 	window.console = {'log' : function (str) {}};
 };
 l = console.log;
 
-var bulletField = function (w, h, maxRadius) {
+// If objects can have negative coordinates, then you can give an offset.
+// For example if your X coordinates go from -1000 to 1000, give an offsetX of 1000.
+function makeCollisionGrid(w, h, cellSize, offsetX, offsetY) {
 	var me = {};
 
-	me.addBullet = function (x, y, radius) {
+	if ((w % cellSize) !== 0 || (h % cellSize) !== 0) {
+		alert('w and h have to be evenly divisible by cellSize');
+	}
 
+	var xCells = (w / cellSize);
+	var yCells = (h / cellSize);
+	var cellCount = xCells * yCells;
+	var field = new Array(cellCount);
+	me.field = field;
+
+	for (var i = 0; i < cellCount; i++) {
+		field[i] = [];
+	}
+
+	// Obj needs to have playX, playY, radius
+	me.add = function (obj) {
+		var gridX = Math.floor((obj.playX + offsetX) / cellSize);
+		var gridY = Math.floor((obj.playY + offsetY) / cellSize);
+		var cellIndex = gridY * xCells + gridX;
+
+		if (cellIndex < 0 || cellIndex >= cellCount) {
+			l("Tried to add out-of-bounds object");
+			l(obj);
+		}
+
+		field[cellIndex].push(obj);
 	};
 
-	me.findCollisions = function () {
-		var collisions = [];
-		return collisions;
+	me.objMoved = function (obj, prevX, prevY) {
+		if (obj.playX + offsetX < 0 || obj.playY + offsetX > w) {
+			l("" + obj.name + " is outside grid: " + obj.playX + ", " + obj.playY);
+		} 
+
+		var oldGridX = Math.floor((prevX + offsetX) / cellSize);
+		var oldGridY = Math.floor((prevY + offsetY) / cellSize);
+		var newGridX = Math.floor((obj.playX + offsetX) / cellSize);
+		var newGridY = Math.floor((obj.playY + offsetY) / cellSize);
+		if (oldGridX === newGridX && oldGridY === newGridY) {
+			return; // still in same cell, no need to do anything
+		}
+
+		// Take it out from the grid cell it used to be in
+		var oldCellIndex = oldGridY * xCells + oldGridX;
+		var place = field[oldCellIndex].indexOf(obj);
+		if (place === -1) {
+			alert("object wasn't in collisionGrid, although it should be, panic!");
+		}
+		field[oldCellIndex].splice(place, 1);
+
+		// Put it in the new grid cell
+		me.add(obj);
+	}
+
+	me.iterateObjs = function (callback) {
+		for (var i = 0; i < cellCount; i++) {
+			for (var j = 0; j < field[i].length; j++) {
+				callback(field[i][j]);
+			}
+		}		
+	};
+
+	function objectsCollide(a, b) {
+		var xdiff = a.playX - b.playX;
+		var ydiff = a.playY - b.playY;
+		return xdiff*xdiff + ydiff*ydiff <= a.radius*a.radius + 2*a.radius*b.radius + b.radius*b.radius;
+	}
+
+	me.findCollisions = function (collisionCallback) {
+		// For each cell need to look at things in it and neighboring cells.
+		for (var cellIndex = 0; cellIndex < cellCount; cellIndex++) {
+
+			var cell = field[cellIndex];
+			var length = cell.length;
+			if (length === 0) continue;
+
+			// for (var i = 0; i < length; i++) {
+			// 	if (cell[i].name == "marimo") {
+			// 		l(cellIndex);
+			// 	}
+			// }
+
+			// Look for collisions inside this cell, but each pairwise only once
+			for (var i = 0; i < length; i++) {
+				for (var j = i + 1; j < length; j++) {
+					if (objectsCollide(cell[i], cell[j])) {
+						collisionCallback(cell[i], cell[j]);
+					}
+				}
+			}
+
+			// Things in this cell could also collide with things inside neighboring cells
+			// var neighborCells = [
+			// 	field[cellIndex - 1 - xCells],
+			// 	field[cellIndex - xCells],
+			// 	field[cellIndex + 1 - xCells],
+			// 	field[cellIndex - 1],
+			// 	field[cellIndex + 1],
+			// 	field[cellIndex - 1 + xCells],
+			// 	field[cellIndex + xCells],
+			// 	field[cellIndex + 1 + xCells]
+			// ];
+			// for (var ci = 0; ci < neighborCells.length; ci++) {
+			// 	var neighborCell = neighborCells[ci];
+			// 	// l(neighborCell);
+			// 	if (neighborCell === undefined) {
+			// 		continue; // this can happen if out of bounds
+			// 	}
+
+			// 	var neighborCellLength = neighborCell.length;
+			// 	// l(neighborCellLength);
+			// 	for (var i = 0; i < length; i++) {
+			// 		for (var j = 0; j < neighborCellLength; j++) {
+			// 			if (objectsCollide(cell[i], neighborCell[j])) {
+			// 	// 			collisionCallback(cell[i], neighborCell[j]);
+			// 			}
+			// 		}
+			// 	}
+
+			// 	// if (c !== undefined) {
+			// 	// 	// Extend neighbors array with contents of cell
+			// 	// 	Array.prototype.push.apply(neighbors, field[cellIndex - 1 - xCells]);
+			// 	// }
+			// }
+
+			var neighbors = [];
+			Array.prototype.push.apply(neighbors, field[cellIndex - 1 - xCells]);
+			Array.prototype.push.apply(neighbors, field[cellIndex - xCells]);
+			Array.prototype.push.apply(neighbors, field[cellIndex + 1 - xCells]);
+			Array.prototype.push.apply(neighbors, field[cellIndex - 1]);
+			Array.prototype.push.apply(neighbors, field[cellIndex + 1]);
+			Array.prototype.push.apply(neighbors, field[cellIndex - 1 + xCells]);
+			Array.prototype.push.apply(neighbors, field[cellIndex + xCells]);
+			Array.prototype.push.apply(neighbors, field[cellIndex + 1 + xCells]);
+
+			for (var i = 0; i < length; i++) {
+				for (var j = 0, nl = neighbors.length; j < nl; j++) {
+					if (objectsCollide(cell[i], neighbors[j])) {
+						collisionCallback(cell[i], neighbors[j]);
+					}
+				}
+			}
+		}
 	};
 
 	return me;
@@ -36,6 +173,7 @@ var game = (function () {
 	var friction = 0.95;
 	var bowlRadius = 1200;
 	var escapeHeight = 160;
+	var collisionGrid = makeCollisionGrid(2600, 2600, 40, 1300, 1300);
 
 	var makeBlob = function () {
 		var me = {
@@ -43,15 +181,18 @@ var game = (function () {
 			dim_y: 0,
 			playY: 200,
 			playX: 200,
+			xdir : 0,
+			ydir : 0,
 			xs: 0,
 			ys: 0,
 			oozeOffset : 0,
 			movementSpeed : 0.0025,
-			bigness : 0.1
+			bigness : 0.1,
+			name : 'unnamed'
 		};
 
 		var blobRectangle = new PIXI.Rectangle(358, 1114, 100, 100);
-		var baseTexture = PIXI.BaseTexture.fromImage("bg.png");
+		var baseTexture = PIXI.BaseTexture.fromImage("bg2.png");
 
 		me.sprite = new PIXI.Sprite(
 			new PIXI.Texture(
@@ -69,17 +210,45 @@ var game = (function () {
 
 		me.twitch = function () {
 			me.lastTwitch = Date.now();
-		}
+			if (me.name === "testblob") {
+				me.xs = (Math.random() - 0.5) * 0.1;
+				me.ys = (Math.random() - 0.5) * 0.1;
+			} 
+		};
 
 		me.eat = function () {
 			l(me.sprite.scale);
 
 			me.bigness *= 1.1;
 			me.sprite.scale.set(me.bigness, me.bigness);
-		}
+		};
+
+		me.didCollideWith = function (b) {
+			if (me.name == "marimo") {
+				l("ouch");
+			}
+			if (me.name == "testblob" && b.name == "testblob") {
+
+				// Make them go away from each other
+
+				// This would move me so that I would overlap with b
+				me.xs = (me.playX - b.playX) * 0.01;
+				me.ys = (me.playY - b.playY) * 0.01;
+
+				// But instead I want to go the opposite way
+
+			}
+		};
 
 		me.tick = function (elapsed) {
+
+			// Approx size for collision detection
+			me.radius = me.sprite.width / 2 * 0.75;
+
+			// l("" + me.name + " " + me.playX);
+
 			// me.sprite.rotation = Date.now();
+
 
 			// Underwater?
 			if (me.playY > 0 && !me.escaped) {
@@ -89,6 +258,7 @@ var game = (function () {
 			} else {
 				me.ys += elapsed * gravity; 
 			}
+
 
 			if (!me.escaped) {
 				me.xs += me.xdir * me.movementSpeed * elapsed;
@@ -100,11 +270,15 @@ var game = (function () {
 			me.playX += me.xs * elapsed;
 			me.playY += me.ys * elapsed;
 
+			// console.log("x:" + me.playX + ", y:" + me.playY);
+			
 			// If colliding with inside, reflect, except if high enough to escape
 			if (Math.sqrt(me.playX * me.playX + me.playY * me.playY) > bowlRadius) {
 
 				if (me.playY < -escapeHeight) {
-					me.escaped = true;
+					if (me.name == "marimo") { // only player can escape
+						me.escaped = true;
+					}
 				}
 
 				if (!me.escaped) {
@@ -118,7 +292,7 @@ var game = (function () {
 			// Twitch to music, or otherwise
 			if (me.lastTwitch !== null) {
 				var twitchElapsed = (Date.now() - me.lastTwitch) * 0.03;
-				var t = (Math.sin(twitchElapsed)) * 10;
+				var t = (Math.sin(twitchElapsed)) * me.bigness * 20;
 				if (twitchElapsed > Math.PI * 2) {
 					me.lastTwitch = null; 
 					t = 0;
@@ -128,6 +302,7 @@ var game = (function () {
 			}
 
 			me.sprite.position.set(me.playX, me.playY);
+			collisionGrid.objMoved(me, me.prevX, me.prevY);
 		};
 
 		return me;
@@ -154,15 +329,16 @@ var game = (function () {
 		);
 
 		me.camera.scale.set(
-			me.camera.scale.x * 0.999 + me.camera.targetScale * 0.001,
-			me.camera.scale.x * 0.999 + me.camera.targetScale * 0.001
+			me.camera.scale.x * 0.99 + me.camera.targetScale * 0.01,
+			me.camera.scale.x * 0.99 + me.camera.targetScale * 0.01
 		);
 
 		me.camera.targetX = -me.blob.playX*me.camera.scale.x + 960/2;
 		me.camera.targetY = -me.blob.playY*me.camera.scale.y + 540/2;
 		me.camera.targetScale = 0.5 / me.blob.bigness;
+		// me.camera.targetScale = 0.5;
 
-//		me.camera.scale.set(0.5 / me.blob.bigness, 0.5 / me.blob.bigness);
+		// me.camera.scale.set(0.5 / me.blob.bigness, 0.5 / me.blob.bigness);
 	};
 
 	graphics.beginFill(0x95998b);
@@ -179,50 +355,23 @@ var game = (function () {
 
 	me.camera.addChild(graphics);
 
-//	me.camera.scale.set(0.5, 0.5);
-
 	document.body.appendChild(renderer.view);
-
-	// bg.position.x = 0;
-	// bg.position.y = 0;
-	// bg.scale.x = 0.25;
-	// bg.scale.y = 0.25;
-	// stage.addChild(bg);
-
-	// var count = 0;
-	// var prevPos = null;
-
 
 	me.controls = function() {
 
 		var p = new PIXI.Rectangle(game.ima.mouse.global.x * 2, game.ima.mouse.global.y * 2, 100, 100);
 
 		if (keysDown[87] || keysDown[83]) { // W / S
-//			me.blob.ys = keysDown[87] ? -me.blob.movementSpeed : me.blob.movementSpeed;
 			me.blob.ydir = keysDown[87] ? -1 : 1;
 		} else {
 			me.blob.ydir = 0;
 		}
 
 		if (keysDown[65] || keysDown[68]) { // A / D
-//			me.blob.xs = keysDown[65] ? -me.blob.movementSpeed : me.blob.movementSpeed;
 			me.blob.xdir = keysDown[65] ? -1 : 1;
 		} else {
 			me.blob.xdir = 0;
 		}
-
-		// if (keysDown[83]) { // S
-		// 	me.blob.ys = me.blob.movementSpeed;
-		// }
-		// if (keysDown[68]) { // D
-		// 	me.blob.xs = me.blob.movementSpeed;
-		// }
-
-
-		// l(p);
-		// me.sprite2.texture.frame = p;
-
-		// l(game.ima.mouse.global.x, game.ima.mouse.global.y);
 	};
 
 	var prevFrame = null;
@@ -234,13 +383,22 @@ var game = (function () {
 		var nau = Date.now();
 		var elapsed = nau - prevFrame;
 
-		me.blob.tick(elapsed);
+		collisionGrid.iterateObjs(function (obj) {
+			obj.tick(elapsed);
+		});
+
+		// me.blob.tick(elapsed);
+		// me.blob2.tick(elapsed);
 
 		prevFrame = nau;
 	}
 
 	me.beat = function() {
-		me.blob.twitch();
+		collisionGrid.iterateObjs(function (obj) {
+			obj.twitch();
+		});
+
+//		me.blob.twitch();
 	}
 
 	var beatPositions = [0, 0.25, 0.5, 0.75];
@@ -270,16 +428,60 @@ var game = (function () {
 		prevMusicPos = pos;
 	};
 
+	me.collisions = function () {
+		collisionGrid.findCollisions(function (a, b) {
+			a.didCollideWith(b);
+			b.didCollideWith(a);
+		});
+	};
+
 	me.animate = function () {
-		// count += 0.1;
 		me.timeBased();
 		me.controls();
 		me.camera.tick();
 		me.musicEvents();
 
+		var start = Date.now();
+
+		if (!me.blob.escaped) {
+			me.collisions();
+		}
+		var end = Date.now();
+		var elapsed = end - start;
+
+		if (elapsed > 1000/60) {
+			l("collision detection took " + elapsed);
+		}
+
 		renderer.render(me.stage);
 		requestAnimationFrame(me.animate);
 	};
+
+	function randomPointInsideCircle(radius) {
+		var pt = {};
+		while (true) {
+			pt.x = Math.random() * radius * 2 - radius;
+			pt.y = Math.random() * radius * 2 - radius;
+			if (Math.sqrt(pt.x*pt.x + pt.y*pt.y) < radius) {
+				return pt;
+			}
+		}
+	}
+
+	me.spawnEnemies = function () {
+		var blob;
+		for (var i = 0; i < 1000; i++) {
+			var pt = randomPointInsideCircle(bowlRadius * 0.9);
+			blob = makeBlob();
+			blob.playX = pt.x;
+			blob.playY = pt.y;
+			blob.name = "testblob";
+			collisionGrid.add(blob);
+
+			blob.sprite.tint = Math.random() * 0xFFFFFF;
+			me.camera.addChild(blob.sprite);
+		}
+	}
 
 	me.assetsDidLoad = function () {
 		// This is OK, it checks the texture cache based on image name so it isn't loaded twice
@@ -294,18 +496,20 @@ var game = (function () {
 
 		me.stage.addChild(me.camera);
 		me.blob = makeBlob();
+		me.blob.name = "marimo";
+		collisionGrid.add(me.blob);
+		// l(me.blob.playX);
+		// l(me.blob.playY);
+
+		me.spawnEnemies();
 		me.camera.addChild(me.blob.sprite);
-
-
-		// me.stage.addChild(me.sprite);
-		
 
 		requestAnimationFrame(me.animate);
 	}
 
 	me.loader = PIXI.loader
 	    .add([
-	    	'bg.png'
+	    	'bg2.png'
 	    ])
 	    .load(me.assetsDidLoad);
 
@@ -333,10 +537,10 @@ var game = (function () {
 
 	me.music = new Gapless5("music", {
 		loop: true, 
-		tracks: "music.wav", 
-		mapKeys: {cue: "1", playpause: "2", stop: "3"}
+		tracks: "music.wav"//, 
+		// mapKeys: {cue: "1", playpause: "2", stop: "3"}
 	});
-//	me.music.play();
+	me.music.play();
 
 	return me;
 })();
