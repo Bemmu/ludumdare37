@@ -1,7 +1,23 @@
 <!DOCTYPE html><head><title></title></head>
 <style>
-	canvas {
+	body {
+		color: white;
+		font-family: "Palatino Linotype", sans;
+	}
+	#info {
 		margin: 50px auto 0 auto;
+		border-radius: 5px;
+		display: block;
+		width: 960px;
+	}
+	.win {
+		font-size: 200%;
+	}
+	#info p {
+		display: none;
+	}
+	canvas {
+		margin: 25px auto 0 auto;
 		border-radius: 5px;
 		display: block;
 		width: 960px;
@@ -193,9 +209,17 @@ function makeCollisionGrid(w, h, cellSize, offsetX, offsetY) {
 	return me;
 };
 
+var bounceSpeed = 0.001;
+var fadeIn = 0;
+var playerAnnoyance = 0;
+
 var game = (function () {
 	var keysDown = {};
-	var me = {};
+	var me = {
+		approachSpeed : 0.02,
+		goAwaySpeed : 0,//.1,
+		fleeDistance : 100		
+	};
 	var graphics = new PIXI.Graphics();
 	var gravity = 0.001;
 	var friction = 0.98;
@@ -218,7 +242,10 @@ var game = (function () {
 			bigness : 0.05 + Math.random() * 0.3,
 			name : 'unnamed',
 			lastCollisionTime : 0,
-			angularVelocity : 0
+			angularVelocity : 0,
+			thingsEaten : 0,
+			timesHurt : 0,
+			lastMeal : 0
 		};
 
 		var blobRectangle = new PIXI.Rectangle(358, 1114, 100, 100);
@@ -240,17 +267,49 @@ var game = (function () {
 
 		me.twitch = function () {
 			me.lastTwitch = Date.now();
-			if (me.name === "testblob") {
-				me.xs = (Math.random() - 0.5) * 0.1;
-				me.ys = (Math.random() - 0.5) * 0.1;
-			} 
 		};
 
 		me.eat = function (amount) {
 			me.bigness += amount;
 			me.sprite.scale.set(me.bigness, me.bigness);
 			me.radius = me.sprite.width / 2 * 0.75;
+			me.thingsEaten += 1;
+
+			if (me.name == "marimo") {
+				if (amount > 0) {
+					me.lastMeal = Date.now();
+				}
+				l("ate " + me.thingsEaten + " things");
+			}
+
+			if (me.name == "marimo" && showingInfoItai) {
+				$('.infoItai').fadeOut();
+			}
+
+			if (me.name == "marimo" && me.thingsEaten == 1) {
+				$('.info1').fadeOut();
+				$('.info2').fadeOut();
+				$('.info3').fadeIn();
+			}
+
+			if (me.name == "marimo" && me.thingsEaten == 2) {
+				$('.info1').fadeOut();
+				$('.info2').fadeOut();
+				$('.info3').fadeOut();
+				$('.info4').fadeIn();
+			}
+
+			if (me.name == "marimo" && me.thingsEaten == 3) {
+				$('.info1').fadeOut();
+				$('.info2').fadeOut();
+				$('.info3').fadeOut();
+				$('.info4').fadeOut();
+			}
+
+			l(me.bigness);
 		};
+
+		var showingInfoItai = false;
 
 		me.didCollideWith = function (b) {
 
@@ -261,7 +320,10 @@ var game = (function () {
 				if (b.bigness < me.bigness) {
 
 					var caloriesInSnack = b.bigness * difficulty;
-					if (me.bigness > 1.5) caloriesInSnack = 0;
+					if (me.bigness > 1.5) caloriesInSnack = caloriesInSnack * 0.5;
+					if (me.bigness > 3) caloriesInSnack = caloriesInSnack * 0.25;
+					if (me.bigness > 5) caloriesInSnack = caloriesInSnack * 0.15;
+					if (me.bigness > 10) caloriesInSnack = 0;
 					me.eat(caloriesInSnack);
 
 					// l(me.bigness);
@@ -277,13 +339,36 @@ var game = (function () {
 					return;
 				} else {
 
+					playerAnnoyance = playerAnnoyance + 1;
+					l("playerAnnoyance: " + playerAnnoyance);
+
 					if (me.name == "marimo") {
 						itai.stop();
 						itai.play();
+
+						showingInfoItai = true;
+
+						me.timesHurt += 1;
+
+						if (me.timesHurt < 3) {
+							$('.infoItai').fadeIn();
+						}
 					}
 
 					// Lose 25% of weight exceeding 0.1
 					var weightLoss = Math.max(0, (me.bigness - 0.1) * 0.25);
+
+					// If the player was hit a lot they'll prolly get frustrated so make it easier
+					if (me.timesHurt > 5) {
+						weightLoss = Math.max(0, (me.bigness - 0.1) * 0.15);
+					}
+					if (me.timesHurt > 10) {
+						weightLoss = Math.max(0, (me.bigness - 0.1) * 0.05);
+					}
+					if (me.timesHurt > 20) {
+						weightLoss = 0;
+					}
+
 					me.eat(-weightLoss);
 
 
@@ -291,8 +376,8 @@ var game = (function () {
 			}
 
 			me.lastCollisionTime = Date.now();
-			me.xs = (me.playX - b.playX) * 0.01;
-			me.ys = (me.playY - b.playY) * 0.01;
+			me.xs = (me.playX - b.playX) * bounceSpeed;
+			me.ys = (me.playY - b.playY) * bounceSpeed;
 			me.angularVelocity = Math.random() * Math.random();
 
 		};
@@ -442,12 +527,20 @@ var game = (function () {
 
 	var prevFrame = null;
 	me.timeBased = function () {
+
 		if (prevFrame === null) {
 			prevFrame = Date.now();
 			return;
 		}
 		var nau = Date.now();
 		var elapsed = nau - prevFrame;
+
+		playerAnnoyance = Math.max(0, playerAnnoyance - elapsed * 0.001);
+
+		fadeIn += elapsed * 0.0004;
+		if (fadeIn > 1) fadeIn = 1;
+		me.music.setGain(fadeIn * 15000);
+		me.camera.alpha = fadeIn;
 
 		var deadThings = [];
 		collisionGrid.iterateObjs(function (obj) {
@@ -472,19 +565,95 @@ var game = (function () {
 	}
 
 	me.beat = function() {
+
+		var objCount = 0;
+
 		collisionGrid.iterateObjs(function (obj) {
+			objCount += 1;
+
 			if (obj.name != "marimo") {
 				obj.twitch();
+
+				var moveMode = "random";
+
+				var xdiff = me.blob.playX - obj.playX;
+				var ydiff = me.blob.playY - obj.playY;
+				var distanceFromMarimo = Math.sqrt(xdiff*xdiff + ydiff*ydiff);
+				// l(distanceFromMarimo);
+
+				// Flee or attack based on size, but only if near enough.
+				if (distanceFromMarimo < me.fleeDistance) {
+					if (obj.bigness < me.blob.bigness) {
+						moveMode = "away";
+					} else {
+
+						if (playerAnnoyance > 10) {
+							moveMode = "away";
+						} else {
+							moveMode = "towards";
+						}
+					}
+					// l(moveMode);
+				}
+
+				// If in the air then don't move
+				if (obj.playY < 0) return;
+
+				switch (moveMode) {
+					case "random":
+						obj.xs = (Math.random() - 0.5) * 0.1;
+						obj.ys = (Math.random() - 0.5) * 0.1;
+						break;
+
+					case "towards":
+
+						// Make unit vector to marimo
+						var unitX = me.blob.playX - obj.playX;
+						var unitY = me.blob.playY - obj.playY;
+						var magnitude = Math.sqrt(unitX*unitX + unitY*unitY);
+						unitX = unitX / magnitude;
+						unitY = unitY / magnitude;
+						obj.xs = unitX * me.approachSpeed * Math.random();
+						obj.ys = unitY * me.approachSpeed * Math.random();
+						break;
+
+					case "away":
+
+						// Make unit vector away from marimo
+						var unitX = obj.playX - me.blob.playX;
+						var unitY = obj.playY - me.blob.playY;
+						var magnitude = Math.sqrt(unitX*unitX + unitY*unitY);
+						unitX = unitX / magnitude;
+						unitY = unitY / magnitude;
+						obj.xs = unitX * me.goAwaySpeed * Math.random();
+						obj.ys = unitY * me.goAwaySpeed * Math.random();
+						break;
+				}
 			}
 		});
+
+		l("Things left: " + objCount);
+		if (objCount < winLimit) {
+			$('.win').show();
+		}
 
 //		me.blob.twitch();
 	}
 
-	var beatPositions = [0, 0.25, 0.5, 0.75];
+	var beatPositions = [0, 1000, 2000, 3000, 4000];
 	var beatIndex = 0;
 
 	var prevMusicPos = null;
+	var prevBeat = null;
+
+	var loops = [
+		[0, 3990],
+		[7500, 8000 + 3990]
+	];
+
+	me.loopStart = loops[1][0];
+	me.loopEnd = loops[1][1];
+
 	me.musicEvents = function() {
 		var pos = me.music.mgr.sources[0].getPosition();
 		if (prevMusicPos === null) {
@@ -498,12 +667,36 @@ var game = (function () {
 		}
 
 		var len = me.music.mgr.sources[0].getLength();
-		var r = pos / len;		
+		// l(pos);
+		// var r = pos / len;		
+		r = pos;
 
-		if (beatIndex < beatPositions.length && r > beatPositions[beatIndex]) {
-			beatIndex++;
-			me.beat();
+		// if (pos >= me.loopEnd) {
+		// 	me.music.scrub(me.loopStart);
+		// }
+
+		var thisBeat = Math.floor((pos - me.loopStart) / 500); // 120 bpm = 2 bps
+		if (thisBeat != prevBeat) {
+			// l(thisBeat);
+			if ((thisBeat % 1) === 0) {
+				l("beat");
+				me.beat();
+			}
+
 		}
+		prevBeat = thisBeat;
+
+		// if (beatIndex < beatPositions.length && r > beatPositions[beatIndex]) {
+		// 	beatIndex++;
+		// 	l(beatIndex);
+
+		// 	if (beatIndex === beatPositions.length - 1) {
+		// 		me.music.scrub(0);
+		// 		beatIndex = 0;
+		// 	}
+
+		// 	me.beat();
+		// }
 
 		prevMusicPos = pos;
 	};
@@ -515,11 +708,49 @@ var game = (function () {
 		});
 	};
 
+	me.adjustDifficulty = function () {
+		var hunger = (Date.now() - me.blob.lastMeal)/1000;
+		// l(hunger);
+
+		me.fleeDistance = 100;
+		me.goAwaySpeed = 0;
+		difficulty = 0.3;
+		if (me.blob.bigness > 0.15) {
+			me.goAwaySpeed = .1;
+		}
+		if (me.blob.bigness > 0.23) {
+			me.goAwaySpeed = .15;
+			me.fleeDistance = 130;
+		}
+		if (me.blob.bigness > 0.3) {
+			me.goAwaySpeed = .2;
+			me.fleeDistance = 250;
+		}
+		if (me.blob.bigness > 0.35) {
+			me.goAwaySpeed = .25;
+			difficulty = 0.2;
+			me.approachSpeed = 0.03;
+			me.fleeDistance = 400;
+		}
+		if (me.blob.bigness > 0.4) {
+			me.goAwaySpeed = .3;
+			me.approachSpeed = 0.04;
+			difficulty = 0.15;
+			me.fleeDistance = 600;
+		}
+		if (me.blob.bigness > 0.5) {
+			me.goAwaySpeed = .6;
+			me.approachSpeed = 0.08;
+			difficulty = 0.1;
+			me.fleeDistance = 800;
+		}
+	};
+
 	me.animate = function () {
+		me.adjustDifficulty();
 		me.timeBased();
 		me.controls();
 		me.camera.tick();
-		me.musicEvents();
 
 		var start = Date.now();
 
@@ -548,21 +779,45 @@ var game = (function () {
 		}
 	}
 
+	var winLimit = 750;
 	me.spawnEnemies = function () {
 		var blob;
 		for (var i = 0; i < 1000; i++) {
-			var pt = randomPointInsideCircle(bowlRadius * 0.88);
+			var pt = randomPointInsideCircle(bowlRadius * 0.80);
+			// var pt = {
+			// 	x : Math.random() * bowlRadius * 1.5 - bowlRadius,
+			// 	y : Math.random() * Math.random()
+			// }
 			blob = makeBlob();
 			blob.playX = pt.x;
 			blob.playY = pt.y;
+//			blob.bigness = 0.02 + ((1000 - pt.y) / 1000) * 1;
+			blob.bigness = 0.02 + Math.random() * Math.random() * 1;
+
+			// bigness : 0.05 + Math.random() * 0.3,
+
 			blob.name = "testblob";
 			collisionGrid.add(blob);
 
 			me.camera.addChild(blob.sprite);
 		}
+
+		// Put one innocent docile one next to marimo for practice.
+
+		blob = makeBlob();
+		blob.playX = me.blob.playX + 75;
+		blob.playY = me.blob.playY;
+		blob.bigness = 0.05;
+		blob.name = "testblob";
+		collisionGrid.add(blob);
+		me.camera.addChild(blob.sprite);
+
 	}
 
 	me.assetsDidLoad = function () {
+		$('.loading').fadeOut();
+		$('.info1').fadeIn();
+
 		// This is OK, it checks the texture cache based on image name so it isn't loaded twice
 		// me.baseTexture = PIXI.BaseTexture.fromImage("bg.png");
 
@@ -575,6 +830,7 @@ var game = (function () {
 
 		me.stage.addChild(me.camera);
 		me.blob = makeBlob();
+		me.blob.lastMeal = Date.now();
 		me.blob.name = "marimo";
 		me.blob.bigness = 0.1;
 		collisionGrid.add(me.blob);
@@ -585,6 +841,12 @@ var game = (function () {
 		me.camera.addChild(me.blob.sprite);
 
 		requestAnimationFrame(me.animate);
+
+		me.music.play();
+		me.music.scrub(me.loopStart);
+		setInterval(function () {
+			me.musicEvents();
+		}, 0);
 	}
 
 	me.loader = PIXI.loader
@@ -595,10 +857,24 @@ var game = (function () {
 
 	me.ima = new PIXI.interaction.InteractionManager(renderer);
 
-	document.body.onkeydown = function(e) {
+
+	var keypressingVirgin = true;
+
+	document.body.onkeydown = function(event) {
+		l("onkeydown");
+
 		if (keysDown[event.keyCode]) return;
 
 		if ([87, 83, 65, 68].indexOf(event.keyCode) !== -1) {
+
+			if (keypressingVirgin) {
+				$('.info1').fadeOut();
+				$('.info2').fadeIn();
+			}
+
+			keypressingVirgin = false;
+
+
 			me.blob.twitch();
 		}
 
@@ -611,16 +887,16 @@ var game = (function () {
 		keysDown[event.keyCode] = true;
 	}
 
-	document.body.onkeyup = function(e) {
+	document.body.onkeyup = function(event) {
 		delete keysDown[event.keyCode];
 	}
 
 	me.music = new Gapless5("music", {
 		loop: true, 
-		tracks: "music.wav"//, 
+		tracks: "shong.wav"//, 
 		// mapKeys: {cue: "1", playpause: "2", stop: "3"}
 	});
-	me.music.play();
+	me.music.setGain(0);
 
 	
 
@@ -629,5 +905,34 @@ var game = (function () {
 
 // document.write('<script src="http://' + (location.host || 'localhost').split(':')[0] + ':35729/livereload.js?snipver=1"></' + 'script>');
 
-$(function() {
-});</script></body></html>
+</script>
+
+<div id="info">
+	<p class="loading" style="display:block;">
+		Loading about 10MB, please wait. 
+		<br><br>
+		Did you know: Marimo is a species of cute green algae.
+		<br><br>
+		<small>Tested on Chrome 54 and Firefox 50</small>
+	</p>
+	<p class="info1">
+		Press W, A, S, D keys on your keyboard to move Marimo.
+	</p>
+	<p class="info2">
+		Marimo can only eat smaller ones.
+	</p>
+	<p class="info3">
+		Eating makes bigger. Marimo want to be big.
+	</p>
+	<p class="info4">
+		Delish!
+	</p>
+	<p class="infoItai">
+		Ouchies make me small again :'-(
+	</p>
+	<p class="win">
+		Marimo happy, you win!
+	</p>
+</div>
+
+</body></html>
